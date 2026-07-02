@@ -173,6 +173,46 @@
   .badge-am { background: #1a3a5c; color: #52c4e0; }
   .badge-pm { background: #3a2a00; color: #f0a500; }
 
+  /* Trend banner */
+  .trend-banner {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-bottom: 1px solid #1e3f5c;
+  }
+  .trend-item {
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-right: 1px solid #1e3f5c;
+  }
+  .trend-item:last-child { border-right: none; }
+  .trend-arrow {
+    font-size: 1.8rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .trend-info .trend-label { font-size: 0.72rem; color: #7fb3d3; text-transform: uppercase; letter-spacing: 0.8px; }
+  .trend-info .trend-value { font-size: 1.1rem; font-weight: 700; margin: 2px 0; }
+  .trend-info .trend-desc { font-size: 0.75rem; }
+  .trend-up .trend-arrow { color: #e07052; }
+  .trend-up .trend-value { color: #e07052; }
+  .trend-up .trend-desc { color: #c06042; }
+  .trend-down .trend-arrow { color: #3ec6a1; }
+  .trend-down .trend-value { color: #3ec6a1; }
+  .trend-down .trend-desc { color: #2ea681; }
+  .trend-stable .trend-arrow { color: #f0a500; }
+  .trend-stable .trend-value { color: #f0a500; }
+  .trend-stable .trend-desc { color: #c08500; }
+  /* For temp, up is warm (amber), down is cool (blue) */
+  .trend-temp-up .trend-arrow { color: #f0a500; }
+  .trend-temp-up .trend-value { color: #f0a500; }
+  .trend-temp-up .trend-desc { color: #c08500; }
+  .trend-temp-down .trend-arrow { color: #52c4e0; }
+  .trend-temp-down .trend-value { color: #52c4e0; }
+  .trend-temp-down .trend-desc { color: #3294b0; }
+
   /* Empty state */
   .empty-state {
     text-align: center;
@@ -202,18 +242,26 @@
   </div>
 </header>
 
+<div id="trendBanner" class="trend-banner"></div>
+
 <div class="controls">
   <div>
+    <label>Period</label>
+    <button class="active range-btn" onclick="setRange('all',event)">All Time</button>
+    <button class="range-btn" onclick="setRange('30d',event)">Last 30 Days</button>
+    <button class="range-btn" onclick="setRange('7d',event)">Last 7 Days</button>
+  </div>
+  <div style="margin-left:8px;border-left:1px solid #1e3f5c;padding-left:16px;">
     <label>View</label>
-    <button class="active" onclick="setView('all',event)">All Readings</button>
-    <button onclick="setView('am',event)">Morning Only</button>
-    <button onclick="setView('pm',event)">Afternoon Only</button>
+    <button class="active view-btn" onclick="setView('all',event)">All</button>
+    <button class="view-btn" onclick="setView('am',event)">Morning</button>
+    <button class="view-btn" onclick="setView('pm',event)">Afternoon</button>
   </div>
   <div style="margin-left:auto;">
     <label>Location</label>
-    <button class="active" onclick="setLocation('both',event)">Both</button>
-    <button onclick="setLocation('br',event)">Boat Ramp</button>
-    <button onclick="setLocation('np',event)">North Pier</button>
+    <button class="active loc-btn" onclick="setLocation('both',event)">Both</button>
+    <button class="loc-btn" onclick="setLocation('br',event)">Boat Ramp</button>
+    <button class="loc-btn" onclick="setLocation('np',event)">North Pier</button>
   </div>
 </div>
 
@@ -253,6 +301,7 @@ const SEED = [
 let RAW = [];
 let currentView = 'all';
 let currentLocation = 'both';
+let currentRange = 'all';
 let charts = {};
 
 // ── File loading ─────────────────────────────────────────────────────────────
@@ -354,8 +403,18 @@ function showToast(msg, isError = false) {
 }
 
 // ── Filter helpers ───────────────────────────────────────────────────────────
+function rangeFilteredData(data) {
+  if (currentRange === 'all') return data;
+  const sorted = [...data].sort((a,b) => a.date.localeCompare(b.date));
+  const lastDate = new Date(sorted[sorted.length-1].date + 'T12:00:00');
+  const days = currentRange === '7d' ? 7 : 30;
+  const cutoff = new Date(lastDate);
+  cutoff.setDate(cutoff.getDate() - days);
+  return data.filter(r => new Date(r.date + 'T12:00:00') >= cutoff);
+}
+
 function filteredData(data) {
-  return data.filter(r => {
+  return rangeFilteredData(data).filter(r => {
     if (currentView === 'am') return r.session === 'AM';
     if (currentView === 'pm') return r.session === 'PM';
     return true;
@@ -363,7 +422,62 @@ function filteredData(data) {
 }
 function avg(arr) { return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0; }
 
-// ── View / location toggles ──────────────────────────────────────────────────
+// ── Linear regression slope ──────────────────────────────────────────────────
+function slope(vals) {
+  if (vals.length < 2) return 0;
+  const n = vals.length;
+  const xs = vals.map((_,i) => i);
+  const mx = avg(xs), my = avg(vals);
+  const num = xs.reduce((s,x,i) => s + (x-mx)*(vals[i]-my), 0);
+  const den = xs.reduce((s,x) => s + (x-mx)**2, 0);
+  return den === 0 ? 0 : num/den;
+}
+
+// ── Trend banner ─────────────────────────────────────────────────────────────
+function updateTrend(data) {
+  const rd = rangeFilteredData(data);
+  if (rd.length < 2) { document.getElementById('trendBanner').innerHTML = ''; return; }
+
+  const sorted = [...rd].sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+  const brPhSlope   = slope(sorted.map(r=>r.brPh));
+  const npPhSlope   = slope(sorted.map(r=>r.npPh));
+  const brTempSlope = slope(sorted.map(r=>r.brTemp));
+  const npTempSlope = slope(sorted.map(r=>r.npTemp));
+
+  const rangeLabel = currentRange === '7d' ? 'Last 7 days' : currentRange === '30d' ? 'Last 30 days' : 'All time';
+
+  function trendHtml(label, val, s, isTemp) {
+    const thresh = isTemp ? 0.05 : 0.003;
+    let dir, arrow, cls, desc;
+    if (s > thresh)       { dir='up';     arrow='↑'; cls=isTemp?'trend-temp-up':'trend-up';     desc=isTemp?'Warming':'Rising'; }
+    else if (s < -thresh) { dir='down';   arrow='↓'; cls=isTemp?'trend-temp-down':'trend-down'; desc=isTemp?'Cooling':'Falling'; }
+    else                  { dir='stable'; arrow='→'; cls='trend-stable';                         desc='Stable'; }
+    const unit = isTemp ? '°F' : '';
+    return `<div class="trend-item ${cls}">
+      <div class="trend-arrow">${arrow}</div>
+      <div class="trend-info">
+        <div class="trend-label">${label}</div>
+        <div class="trend-value">${val.toFixed(isTemp?1:2)}${unit}</div>
+        <div class="trend-desc">${desc} · ${rangeLabel}</div>
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('trendBanner').innerHTML =
+    trendHtml('Boat Ramp pH',   avg(sorted.map(r=>r.brPh)),   brPhSlope,   false) +
+    trendHtml('North Pier pH',  avg(sorted.map(r=>r.npPh)),   npPhSlope,   false) +
+    trendHtml('Boat Ramp Temp', avg(sorted.map(r=>r.brTemp)), brTempSlope, true)  +
+    trendHtml('North Pier Temp',avg(sorted.map(r=>r.npTemp)), npTempSlope, true);
+}
+
+// ── View / location / range toggles ─────────────────────────────────────────
+function setRange(v, e) {
+  currentRange = v;
+  document.querySelectorAll('.controls .range-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  updateAll();
+}
 function setView(v, e) {
   currentView = v;
   document.querySelectorAll('.controls .view-btn').forEach(b => b.classList.remove('active'));
@@ -538,29 +652,13 @@ function updateTable(data) {
 
 function updateAll() {
   const data = augment(RAW);
+  updateTrend(data);
   updateStats(data);
   updateTimeSeries(data);
   updateAmPm(data);
   updateScatter(data);
   updateTable(data);
 }
-
-// ── Fix button onclick to pass event ─────────────────────────────────────────
-document.querySelectorAll('.controls button').forEach(btn => {
-  const orig = btn.getAttribute('onclick');
-  if (orig && orig.includes('setView')) {
-    const v = orig.match(/'(\w+)'/)[1];
-    btn.removeAttribute('onclick');
-    btn.classList.add('view-btn');
-    btn.addEventListener('click', e => setView(v, e));
-  }
-  if (orig && orig.includes('setLocation')) {
-    const l = orig.match(/'(\w+)'/)[1];
-    btn.removeAttribute('onclick');
-    btn.classList.add('loc-btn');
-    btn.addEventListener('click', e => setLocation(l, e));
-  }
-});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 const stored = loadFromStorage();
