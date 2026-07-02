@@ -586,7 +586,9 @@ function updateTimeSeries(data) {
 
   const xOpts = {...baseOpts.scales.x};
   makeOrUpdate('phChart','line', ds('ph'), {...baseOpts, scales:{x:xOpts, y:{min:8.2,max:9.3,ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}}});
-  makeOrUpdate('tempChart','line', ds('temp'), {...baseOpts, scales:{x:xOpts, y:{min:65,max:78,ticks:{color:'#7fb3d3',callback:v=>v+'°F'},grid:{color:'rgba(255,255,255,0.07)'}}}});
+  const temps = fd.map(r=>r.brTemp).concat(fd.map(r=>r.npTemp)).filter(v=>v>30);
+  const tMin = Math.floor(Math.min(...temps) - 2), tMax = Math.ceil(Math.max(...temps) + 2);
+  makeOrUpdate('tempChart','line', ds('temp'), {...baseOpts, scales:{x:xOpts, y:{min:tMin,max:tMax,ticks:{color:'#7fb3d3',callback:v=>v+'°F'},grid:{color:'rgba(255,255,255,0.07)'}}}});
 }
 
 function updateAmPm(data) {
@@ -631,8 +633,8 @@ function updateScatter(data) {
   makeOrUpdate('locationTempChart','scatter',{
     datasets:[{label:'BR vs NP Temp',data:data.map(r=>({x:r.brTemp,y:r.npTemp})),backgroundColor:'#f0a500',pointRadius:6}]
   },{...scatterOpts,scales:{
-    x:{...scatterOpts.scales.x,min:67,max:77,title:{display:true,text:'Boat Ramp (°F)',color:'#3ec6a1'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.05)'}},
-    y:{...scatterOpts.scales.y,min:67,max:77,title:{display:true,text:'North Pier (°F)',color:'#e07052'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.07)'}}
+    x:{...scatterOpts.scales.x,title:{display:true,text:'Boat Ramp (°F)',color:'#3ec6a1'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.05)'}},
+    y:{...scatterOpts.scales.y,title:{display:true,text:'North Pier (°F)',color:'#e07052'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.07)'}}
   }});
 }
 
