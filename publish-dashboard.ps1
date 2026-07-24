@@ -53,6 +53,9 @@ try {
         $timeStr = [regex]::Replace($rawTime, "^(\d+:\d+):\d+\s*(AM|PM)$", '$1 $2')
         if (-not $timeStr) { $timeStr = "12:00 PM" }
 
+        $llPhVal   = if ($ws.Cells($r, 7).Value2 -ne $null -and $ws.Cells($r, 7).Value2 -ne '') { [Math]::Round([double]$ws.Cells($r, 7).Value2, 2) } else { $null }
+        $llTempVal = if ($ws.Cells($r, 8).Value2 -ne $null -and $ws.Cells($r, 8).Value2 -ne '') { [Math]::Round([double]$ws.Cells($r, 8).Value2, 1) } else { $null }
+
         $rows += [PSCustomObject]@{
             date    = $dateStr
             time    = $timeStr
@@ -60,6 +63,8 @@ try {
             brTemp  = [Math]::Round([double]$brTemp, 1)
             npPh    = [Math]::Round([double]$npPh, 2)
             npTemp  = [Math]::Round([double]$npTemp, 1)
+            llPh    = $llPhVal
+            llTemp  = $llTempVal
         }
     }
 
@@ -82,7 +87,9 @@ $seedLines = @()
 for ($i = 0; $i -lt $rows.Count; $i++) {
     $r = $rows[$i]
     $comma = if ($i -lt $rows.Count - 1) { "," } else { "" }
-    $seedLines += "  {date:`"$($r.date)`",time:`"$($r.time)`", brPh:$($r.brPh), brTemp:$($r.brTemp), npPh:$($r.npPh), npTemp:$($r.npTemp)}$comma"
+    $llPhStr   = if ($r.llPh   -ne $null) { ", llPh:$($r.llPh)"   } else { ", llPh:null"   }
+    $llTempStr = if ($r.llTemp -ne $null) { ", llTemp:$($r.llTemp)" } else { ", llTemp:null" }
+    $seedLines += "  {date:`"$($r.date)`",time:`"$($r.time)`", brPh:$($r.brPh), brTemp:$($r.brTemp), npPh:$($r.npPh), npTemp:$($r.npTemp)$llPhStr$llTempStr}$comma"
 }
 $newSeed = "const SEED = [" + "`n" + ($seedLines -join "`n") + "`n];"
 

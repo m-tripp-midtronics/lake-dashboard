@@ -212,6 +212,7 @@
   .trend-temp-down .trend-arrow { color: #52c4e0; }
   .trend-temp-down .trend-value { color: #52c4e0; }
   .trend-temp-down .trend-desc { color: #3294b0; }
+  .trend-banner { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 
   /* Empty state */
   .empty-state {
@@ -262,6 +263,7 @@
     <button class="active loc-btn" onclick="setLocation('both',event)">Both</button>
     <button class="loc-btn" onclick="setLocation('br',event)">Boat Ramp</button>
     <button class="loc-btn" onclick="setLocation('np',event)">North Pier</button>
+    <button class="loc-btn" onclick="setLocation('ll',event)">Little Lake</button>
   </div>
 </div>
 
@@ -354,6 +356,8 @@ function parseRows(rows) {
     const rawDate = r[0], rawTime = r[1];
     const brPh = parseFloat(r[2]), brTemp = parseFloat(r[3]);
     const npPh = parseFloat(r[4]), npTemp = parseFloat(r[5]);
+    const llPh = r[6] !== undefined && r[6] !== '' ? parseFloat(r[6]) : null;
+    const llTemp = r[7] !== undefined && r[7] !== '' ? parseFloat(r[7]) : null;
     if (isNaN(brPh) || isNaN(brTemp) || isNaN(npPh) || isNaN(npTemp)) continue;
 
     // Parse date — may come as Date object, serial, or string
@@ -377,7 +381,7 @@ function parseRows(rows) {
     timeStr = timeStr.replace(/^(\d+:\d+):\d+\s*(AM|PM)$/i, '$1 $2').toUpperCase();
     if (!timeStr) timeStr = '12:00 PM';
 
-    result.push({ date: dateStr, time: timeStr, brPh, brTemp, npPh, npTemp });
+    result.push({ date: dateStr, time: timeStr, brPh, brTemp, npPh, npTemp, llPh, llTemp });
   }
   return result;
 }
@@ -455,19 +459,23 @@ function updateTrend(data) {
 
   const sorted = [...rd].sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
+  const llSorted = sorted.filter(r=>r.llPh != null);
   const brPhSlope   = slope(sorted.map(r=>r.brPh));
   const npPhSlope   = slope(sorted.map(r=>r.npPh));
+  const llPhSlope   = slope(llSorted.map(r=>r.llPh));
   const brTempSlope = slope(sorted.map(r=>r.brTemp));
   const npTempSlope = slope(sorted.map(r=>r.npTemp));
+  const llTempSlope = slope(llSorted.map(r=>r.llTemp));
 
   const rangeLabel = currentRange === '7d' ? 'Last 7 days' : currentRange === '30d' ? 'Last 30 days' : 'All time';
 
   function trendHtml(label, val, s, isTemp) {
+    if (val == null || isNaN(val)) return '';
     const thresh = isTemp ? 0.05 : 0.003;
-    let dir, arrow, cls, desc;
-    if (s > thresh)       { dir='up';     arrow='↑'; cls=isTemp?'trend-temp-up':'trend-up';     desc=isTemp?'Warming':'Rising'; }
-    else if (s < -thresh) { dir='down';   arrow='↓'; cls=isTemp?'trend-temp-down':'trend-down'; desc=isTemp?'Cooling':'Falling'; }
-    else                  { dir='stable'; arrow='→'; cls='trend-stable';                         desc='Stable'; }
+    let arrow, cls, desc;
+    if (s > thresh)       { arrow='↑'; cls=isTemp?'trend-temp-up':'trend-up';     desc=isTemp?'Warming':'Rising'; }
+    else if (s < -thresh) { arrow='↓'; cls=isTemp?'trend-temp-down':'trend-down'; desc=isTemp?'Cooling':'Falling'; }
+    else                  { arrow='→'; cls='trend-stable';                         desc='Stable'; }
     const unit = isTemp ? '°F' : '';
     return `<div class="trend-item ${cls}">
       <div class="trend-arrow">${arrow}</div>
@@ -479,11 +487,16 @@ function updateTrend(data) {
     </div>`;
   }
 
+  const llPhAvg   = llSorted.length ? avg(llSorted.map(r=>r.llPh))   : null;
+  const llTempAvg = llSorted.length ? avg(llSorted.map(r=>r.llTemp)) : null;
+
   document.getElementById('trendBanner').innerHTML =
-    trendHtml('Boat Ramp pH',   avg(sorted.map(r=>r.brPh)),   brPhSlope,   false) +
-    trendHtml('North Pier pH',  avg(sorted.map(r=>r.npPh)),   npPhSlope,   false) +
-    trendHtml('Boat Ramp Temp', avg(sorted.map(r=>r.brTemp)), brTempSlope, true)  +
-    trendHtml('North Pier Temp',avg(sorted.map(r=>r.npTemp)), npTempSlope, true);
+    trendHtml('Boat Ramp pH',    avg(sorted.map(r=>r.brPh)),   brPhSlope,   false) +
+    trendHtml('North Pier pH',   avg(sorted.map(r=>r.npPh)),   npPhSlope,   false) +
+    trendHtml('Little Lake pH',  llPhAvg,                      llPhSlope,   false) +
+    trendHtml('Boat Ramp Temp',  avg(sorted.map(r=>r.brTemp)), brTempSlope, true)  +
+    trendHtml('North Pier Temp', avg(sorted.map(r=>r.npTemp)), npTempSlope, true)  +
+    trendHtml('Little Lake Temp',llTempAvg,                    llTempSlope, true);
 }
 
 // ── View / location / range toggles ─────────────────────────────────────────
@@ -510,6 +523,7 @@ function setLocation(l, e) {
 const C = {
   br: { ph:'#3ec6a1', temp:'#26a884', phFill:'rgba(62,198,161,0.15)', tempFill:'rgba(62,198,161,0.1)' },
   np: { ph:'#e07052', temp:'#c0503a', phFill:'rgba(224,112,82,0.15)', tempFill:'rgba(224,112,82,0.1)' },
+  ll: { ph:'#a78bfa', temp:'#7c5cbf', phFill:'rgba(167,139,250,0.15)', tempFill:'rgba(167,139,250,0.1)' },
 };
 
 const baseOpts = {
@@ -566,6 +580,7 @@ function buildDOM() {
             <th>Date</th><th>Time</th><th>Session</th>
             <th>Boat Ramp pH</th><th>Boat Ramp Temp</th>
             <th>North Pier pH</th><th>North Pier Temp</th>
+            <th>Little Lake pH</th><th>Little Lake Temp</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -577,15 +592,19 @@ function buildDOM() {
 function updateStats(data) {
   const fd = filteredData(data);
   const brPh=fd.map(r=>r.brPh), npPh=fd.map(r=>r.npPh);
+  const llPh=fd.map(r=>r.llPh).filter(v=>v!=null), llTemp=fd.map(r=>r.llTemp).filter(v=>v!=null);
   const brTemp=fd.map(r=>r.brTemp), npTemp=fd.map(r=>r.npTemp);
-  const allPh=[...brPh,...npPh], allTemp=[...brTemp,...npTemp];
+  const allPh=[...brPh,...npPh,...llPh], allTemp=[...brTemp,...npTemp,...llTemp];
   if (!allPh.length) { document.getElementById('statsRow').innerHTML=''; return; }
-  document.getElementById('statsRow').innerHTML = [
-    {label:'Avg pH', value:avg(allPh).toFixed(2), sub:`Range ${Math.min(...allPh).toFixed(2)}–${Math.max(...allPh).toFixed(2)}`, cls:'ph-color'},
-    {label:'Avg Temp', value:avg(allTemp).toFixed(1)+'°', sub:`Range ${Math.min(...allTemp).toFixed(1)}–${Math.max(...allTemp).toFixed(1)}°F`, cls:'temp-color'},
-    {label:'Boat Ramp pH', value:avg(brPh).toFixed(2), sub:`Temp avg ${avg(brTemp).toFixed(1)}°F`, cls:'br-color'},
-    {label:'North Pier pH', value:avg(npPh).toFixed(2), sub:`Temp avg ${avg(npTemp).toFixed(1)}°F`, cls:'np-color'},
-  ].map(s=>`<div class="stat-card"><div class="label">${s.label}</div><div class="value ${s.cls}">${s.value}</div><div class="sub">${s.sub}</div></div>`).join('');
+  const cards = [
+    {label:'Avg pH',       value:avg(allPh).toFixed(2),          sub:`Range ${Math.min(...allPh).toFixed(2)}–${Math.max(...allPh).toFixed(2)}`,   cls:'ph-color'},
+    {label:'Avg Temp',     value:avg(allTemp).toFixed(1)+'°',    sub:`Range ${Math.min(...allTemp).toFixed(1)}–${Math.max(...allTemp).toFixed(1)}°F`, cls:'temp-color'},
+    {label:'Boat Ramp pH', value:avg(brPh).toFixed(2),           sub:`Temp avg ${avg(brTemp).toFixed(1)}°F`, cls:'br-color'},
+    {label:'North Pier pH',value:avg(npPh).toFixed(2),           sub:`Temp avg ${avg(npTemp).toFixed(1)}°F`, cls:'np-color'},
+  ];
+  if (llPh.length) cards.push({label:'Little Lake pH', value:avg(llPh).toFixed(2), sub:`Temp avg ${avg(llTemp).toFixed(1)}°F`, cls:'ph-color'});
+  document.getElementById('statsRow').style.gridTemplateColumns = `repeat(${cards.length}, 1fr)`;
+  document.getElementById('statsRow').innerHTML = cards.map(s=>`<div class="stat-card"><div class="label">${s.label}</div><div class="value ${s.cls}">${s.value}</div><div class="sub">${s.sub}</div></div>`).join('');
 }
 
 function updateTimeSeries(data) {
@@ -594,41 +613,58 @@ function updateTimeSeries(data) {
 
   function ds(type) {
     const sets = [];
-    if (currentLocation !== 'np') sets.push({label:'Boat Ramp', data:fd.map(r=>type==='ph'?r.brPh:r.brTemp), borderColor:C.br[type], backgroundColor:C.br[type+'Fill'], fill:true});
-    if (currentLocation !== 'br') sets.push({label:'North Pier', data:fd.map(r=>type==='ph'?r.npPh:r.npTemp), borderColor:C.np[type], backgroundColor:C.np[type+'Fill'], fill:true});
+    const showAll = currentLocation === 'both';
+    if (showAll || currentLocation === 'br') sets.push({label:'Boat Ramp',   data:fd.map(r=>type==='ph'?r.brPh:r.brTemp), borderColor:C.br[type], backgroundColor:C.br[type+'Fill'], fill:true, spanGaps:true});
+    if (showAll || currentLocation === 'np') sets.push({label:'North Pier',  data:fd.map(r=>type==='ph'?r.npPh:r.npTemp), borderColor:C.np[type], backgroundColor:C.np[type+'Fill'], fill:true, spanGaps:true});
+    if (showAll || currentLocation === 'll') sets.push({label:'Little Lake', data:fd.map(r=>type==='ph'?r.llPh:r.llTemp),  borderColor:C.ll[type], backgroundColor:C.ll[type+'Fill'], fill:true, spanGaps:true});
     return {labels, datasets:sets};
   }
 
   const xOpts = {...baseOpts.scales.x};
-  makeOrUpdate('phChart','line', ds('ph'), {...baseOpts, scales:{x:xOpts, y:{min:8.2,max:9.3,ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}}});
-  const temps = fd.map(r=>r.brTemp).concat(fd.map(r=>r.npTemp)).filter(v=>v>30);
+  const phs = fd.flatMap(r=>[r.brPh,r.npPh,r.llPh]).filter(v=>v!=null&&!isNaN(v));
+  const phMin = Math.floor((Math.min(...phs)-0.1)*100)/100, phMax = Math.ceil((Math.max(...phs)+0.1)*100)/100;
+  makeOrUpdate('phChart','line', ds('ph'), {...baseOpts, scales:{x:xOpts, y:{min:phMin,max:phMax,ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}}});
+  const temps = fd.flatMap(r=>[r.brTemp,r.npTemp,r.llTemp]).filter(v=>v!=null&&v>30);
   const tMin = Math.floor(Math.min(...temps) - 2), tMax = Math.ceil(Math.max(...temps) + 2);
   makeOrUpdate('tempChart','line', ds('temp'), {...baseOpts, scales:{x:xOpts, y:{min:tMin,max:tMax,ticks:{color:'#7fb3d3',callback:v=>v+'°F'},grid:{color:'rgba(255,255,255,0.07)'}}}});
 }
 
 function updateAmPm(data) {
-  const am = data.filter(r=>r.session==='AM'), pm = data.filter(r=>r.session==='PM');
-  const locs = ['Boat Ramp','North Pier'];
+  const fd = filteredData(data);
+  const am = fd.filter(r=>r.session==='AM'), pm = fd.filter(r=>r.session==='PM');
+  const hasLL = fd.some(r=>r.llPh!=null);
+  const locs = hasLL ? ['Boat Ramp','North Pier','Little Lake'] : ['Boat Ramp','North Pier'];
   const barOpts = {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#b0cfe8',font:{size:12}}}},scales:{x:{ticks:{color:'#7fb3d3'},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#7fb3d3'},grid:{color:'rgba(255,255,255,0.07)'}}}};
 
-  makeOrUpdate('ampmPhChart','bar',{
-    labels:locs,
-    datasets:[
-      {label:'Morning Avg', data:[avg(am.map(r=>r.brPh)),avg(am.map(r=>r.npPh))], backgroundColor:'rgba(82,196,224,0.7)',borderColor:'#52c4e0',borderWidth:1.5},
-      {label:'Afternoon Avg', data:[avg(pm.map(r=>r.brPh)),avg(pm.map(r=>r.npPh))], backgroundColor:'rgba(240,165,0,0.7)',borderColor:'#f0a500',borderWidth:1.5},
-    ]
-  },{...barOpts,scales:{...barOpts.scales,y:{...barOpts.scales.y,min:8.3,ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}}});
+  const amPhData  = [avg(am.map(r=>r.brPh)), avg(am.map(r=>r.npPh))];
+  const pmPhData  = [avg(pm.map(r=>r.brPh)), avg(pm.map(r=>r.npPh))];
+  const amTmpData = [avg(am.map(r=>r.brTemp)), avg(am.map(r=>r.npTemp))];
+  const pmTmpData = [avg(pm.map(r=>r.brTemp)), avg(pm.map(r=>r.npTemp))];
+  if (hasLL) {
+    amPhData.push(avg(am.filter(r=>r.llPh!=null).map(r=>r.llPh)));
+    pmPhData.push(avg(pm.filter(r=>r.llPh!=null).map(r=>r.llPh)));
+    amTmpData.push(avg(am.filter(r=>r.llTemp!=null).map(r=>r.llTemp)));
+    pmTmpData.push(avg(pm.filter(r=>r.llTemp!=null).map(r=>r.llTemp)));
+  }
 
-  makeOrUpdate('ampmTempChart','bar',{
-    labels:locs,
-    datasets:[
-      {label:'Morning Avg', data:[avg(am.map(r=>r.brTemp)),avg(am.map(r=>r.npTemp))], backgroundColor:'rgba(82,196,224,0.7)',borderColor:'#52c4e0',borderWidth:1.5},
-      {label:'Afternoon Avg', data:[avg(pm.map(r=>r.brTemp)),avg(pm.map(r=>r.npTemp))], backgroundColor:'rgba(240,165,0,0.7)',borderColor:'#f0a500',borderWidth:1.5},
-    ]
-  },{...barOpts,scales:{...barOpts.scales,y:{...barOpts.scales.y,min:65,ticks:{color:'#7fb3d3',callback:v=>v+'°F'},grid:{color:'rgba(255,255,255,0.07)'}}}});
+  const allPh = [...amPhData,...pmPhData].filter(v=>v>0);
+  const phMin = allPh.length ? Math.floor((Math.min(...allPh)-0.1)*10)/10 : 8;
+  const allTm = [...amTmpData,...pmTmpData].filter(v=>v>0);
+  const tmMin = allTm.length ? Math.floor(Math.min(...allTm)-2) : 60;
+
+  makeOrUpdate('ampmPhChart','bar',{labels:locs,datasets:[
+    {label:'Morning Avg',   data:amPhData,  backgroundColor:'rgba(82,196,224,0.7)', borderColor:'#52c4e0',borderWidth:1.5},
+    {label:'Afternoon Avg', data:pmPhData,  backgroundColor:'rgba(240,165,0,0.7)',  borderColor:'#f0a500',borderWidth:1.5},
+  ]},{...barOpts,scales:{...barOpts.scales,y:{min:phMin,ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}}});
+
+  makeOrUpdate('ampmTempChart','bar',{labels:locs,datasets:[
+    {label:'Morning Avg',   data:amTmpData, backgroundColor:'rgba(82,196,224,0.7)', borderColor:'#52c4e0',borderWidth:1.5},
+    {label:'Afternoon Avg', data:pmTmpData, backgroundColor:'rgba(240,165,0,0.7)',  borderColor:'#f0a500',borderWidth:1.5},
+  ]},{...barOpts,scales:{...barOpts.scales,y:{min:tmMin,ticks:{color:'#7fb3d3',callback:v=>v+'°F'},grid:{color:'rgba(255,255,255,0.07)'}}}});
 }
 
 function updateScatter(data) {
+  const fd = filteredData(data);
   const scatterOpts = {
     responsive:true,maintainAspectRatio:false,
     plugins:{legend:{labels:{color:'#b0cfe8',font:{size:12}}}},
@@ -638,18 +674,25 @@ function updateScatter(data) {
     }
   };
 
-  makeOrUpdate('locationPhChart','scatter',{
-    datasets:[{label:'BR vs NP pH',data:data.map(r=>({x:r.brPh,y:r.npPh})),backgroundColor:'#52c4e0',pointRadius:6}]
-  },{...scatterOpts,scales:{
-    x:{...scatterOpts.scales.x,min:8.3,max:9.2,title:{display:true,text:'Boat Ramp pH',color:'#3ec6a1'},ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.05)'}},
-    y:{...scatterOpts.scales.y,min:8.3,max:9.2,title:{display:true,text:'North Pier pH',color:'#e07052'},ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}
+  const llRows = fd.filter(r=>r.llPh!=null);
+  const phDS = [
+    {label:'BR vs NP',          data:fd.map(r=>({x:r.brPh,y:r.npPh})),                               backgroundColor:'#52c4e0',pointRadius:5},
+  ];
+  if (llRows.length) phDS.push({label:'BR vs Little Lake', data:llRows.map(r=>({x:r.brPh,y:r.llPh})), backgroundColor:'#a78bfa',pointRadius:5});
+
+  const tmpDS = [
+    {label:'BR vs NP',          data:fd.map(r=>({x:r.brTemp,y:r.npTemp})),                                   backgroundColor:'#f0a500',pointRadius:5},
+  ];
+  if (llRows.length) tmpDS.push({label:'BR vs Little Lake', data:llRows.map(r=>({x:r.brTemp,y:r.llTemp})),   backgroundColor:'#a78bfa',pointRadius:5});
+
+  makeOrUpdate('locationPhChart','scatter',{datasets:phDS},{...scatterOpts,scales:{
+    x:{...scatterOpts.scales.x,title:{display:true,text:'Boat Ramp pH',color:'#3ec6a1'},ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.05)'}},
+    y:{...scatterOpts.scales.y,title:{display:true,text:'North Pier / Little Lake pH',color:'#e07052'},ticks:{color:'#7fb3d3',callback:v=>v.toFixed(2)},grid:{color:'rgba(255,255,255,0.07)'}}
   }});
 
-  makeOrUpdate('locationTempChart','scatter',{
-    datasets:[{label:'BR vs NP Temp',data:data.map(r=>({x:r.brTemp,y:r.npTemp})),backgroundColor:'#f0a500',pointRadius:6}]
-  },{...scatterOpts,scales:{
+  makeOrUpdate('locationTempChart','scatter',{datasets:tmpDS},{...scatterOpts,scales:{
     x:{...scatterOpts.scales.x,title:{display:true,text:'Boat Ramp (°F)',color:'#3ec6a1'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.05)'}},
-    y:{...scatterOpts.scales.y,title:{display:true,text:'North Pier (°F)',color:'#e07052'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.07)'}}
+    y:{...scatterOpts.scales.y,title:{display:true,text:'North Pier / Little Lake (°F)',color:'#e07052'},ticks:{color:'#7fb3d3',callback:v=>v+'°'},grid:{color:'rgba(255,255,255,0.07)'}}
   }});
 }
 
@@ -664,6 +707,8 @@ function updateTable(data) {
       <td style="color:#f0a500">${r.brTemp.toFixed(1)}°F</td>
       <td style="color:#e07052;font-weight:600">${r.npPh.toFixed(2)}</td>
       <td style="color:#f0a500">${r.npTemp.toFixed(1)}°F</td>
+      <td style="color:#a78bfa;font-weight:600">${r.llPh!=null?r.llPh.toFixed(2):'—'}</td>
+      <td style="color:#f0a500">${r.llTemp!=null?r.llTemp.toFixed(1)+'°F':'—'}</td>
     </tr>`).join('');
 }
 
